@@ -12,7 +12,6 @@ typedef struct {
 Token tokens[MAX];
 int pos = 0, total = 0;
 
-// Load tokens from lexer output
 void loadTokens() {
     FILE *fp = fopen("tokens.txt", "r");
     if (!fp) {
@@ -25,7 +24,6 @@ void loadTokens() {
     fclose(fp);
 }
 
-// Match current token type
 int match(char *expectedType) {
     if (pos < total && strcmp(tokens[pos].type, expectedType) == 0) {
         pos++;
@@ -34,106 +32,151 @@ int match(char *expectedType) {
     return 0;
 }
 
-// Expect and move ahead, else error
+int matchValue(char *expectedValue) {
+    if (pos < total && strcmp(tokens[pos].value, expectedValue) == 0) {
+        pos++;
+        return 1;
+    }
+    return 0;
+}
+
 void expect(char *expectedType) {
     if (!match(expectedType)) {
-        printf("Syntax Error at token %d: expected %s, found %s (%s)\n",
+        printf("Syntax Error at token %d: expected %s, found <%s> %s\n",
                pos + 1, expectedType, tokens[pos].type, tokens[pos].value);
         exit(1);
     }
 }
 
-// Parsing functions
-void expression();
-void statement();
-
 void factor() {
-    if (match("IDENTIFIER") || match("NUMBER")) {
-        return;
-    }
-    printf("Syntax Error at token %d: invalid factor\n", pos + 1);
+    if (match("IDENTIFIER") || match("NUMBER")) return;
+    printf("Syntax Error at token %d: expected IDENTIFIER or NUMBER, found <%s> %s\n",
+           pos + 1, tokens[pos].type, tokens[pos].value);
     exit(1);
 }
 
 void expression() {
     factor();
-    while (match("OPERATOR")) {
+    while (strcmp(tokens[pos].type, "OPERATOR") == 0) {
+        pos++;
         factor();
     }
 }
 
+void return_statement() {
+    expect("KEYWORD");  // return
+    expression();
+    expect("SEPARATOR"); // ;
+}
+
 void assignment() {
     expect("IDENTIFIER");
-    expect("OPERATOR"); // '='
+    expect("OPERATOR"); // =
     expression();
-    expect("SEPARATOR"); // ';'
+    expect("SEPARATOR"); // ;
 }
 
 void declaration() {
     expect("KEYWORD");       // int, float, etc.
     expect("IDENTIFIER");
-    if (match("OPERATOR")) { // optional '='
+    while (matchValue(",")) {
+        expect("IDENTIFIER");
+    }
+    if (match("OPERATOR")) {
         expression();
     }
-    expect("SEPARATOR");     // ';'
+    expect("SEPARATOR");     // ;
+}
+
+void statement(); // forward declaration
+
+void block() {
+    expect("SEPARATOR"); // {
+    while (strcmp(tokens[pos].value, "}") != 0 && pos < total) {
+        statement();
+    }
+    expect("SEPARATOR"); // }
+}
+
+void parameter_list() {
+    if (strcmp(tokens[pos].type, "KEYWORD") == 0) {
+        expect("KEYWORD");
+        expect("IDENTIFIER");
+        while (matchValue(",")) {
+            expect("KEYWORD");
+            expect("IDENTIFIER");
+        }
+    }
+}
+
+void function_definition() {
+    expect("KEYWORD");     // return type
+    expect("IDENTIFIER");  // function name
+    expect("SEPARATOR");   // (
+    if (!matchValue(")")) {
+        parameter_list();
+        expect("SEPARATOR"); // )
+    }
+    block();
+}
+
+void function_call() {
+    expect("IDENTIFIER");
+    expect("SEPARATOR"); // (
+    if (strcmp(tokens[pos].type, "IDENTIFIER") == 0 || strcmp(tokens[pos].type, "NUMBER") == 0) {
+        expression();
+        while (matchValue(",")) {
+            expression();
+        }
+    }
+    expect("SEPARATOR"); // )
+    expect("SEPARATOR"); // ;
 }
 
 void if_statement() {
-    expect("KEYWORD");       // if
-    expect("SEPARATOR");     // (
+    expect("KEYWORD");  // if
+    expect("SEPARATOR"); // (
     expression();
-    expect("SEPARATOR");     // )
-    expect("SEPARATOR");     // {
-    while (!match("SEPARATOR")) { // }
-        statement();
-    }
+    expect("SEPARATOR"); // )
+    block();
 }
 
-// NEW FUNCTION DEFINITION SUPPORT
-void function_definition() {
-    expect("KEYWORD");     // int
-    expect("IDENTIFIER");  // main
-    expect("SEPARATOR");   // (
-    expect("SEPARATOR");   // )
-    expect("SEPARATOR");   // {
-    while (!match("SEPARATOR")) { // }
-        statement();
-    }
-}
-
-// MAIN PARSER FUNCTION
 void statement() {
-    // Skip preprocessor tokens
     if (strcmp(tokens[pos].type, "PREPROCESSOR") == 0) {
         pos++;
-        return;
-    }
-
-    // Function definition: int main() { ... }
-    if (strcmp(tokens[pos].type, "KEYWORD") == 0 &&
-        strcmp(tokens[pos].value, "int") == 0 &&
-        strcmp(tokens[pos + 1].type, "IDENTIFIER") == 0 &&
-        strcmp(tokens[pos + 1].value, "main") == 0) {
-        function_definition();
-    }
-    else if (strcmp(tokens[pos].type, "KEYWORD") == 0 &&
-             strcmp(tokens[pos].value, "if") == 0) {
+    } else if (strcmp(tokens[pos].type, "KEYWORD") == 0 &&
+               strcmp(tokens[pos].value, "return") == 0) {
+        return_statement();
+    } else if (strcmp(tokens[pos].type, "KEYWORD") == 0 &&
+               strcmp(tokens[pos].value, "if") == 0) {
         if_statement();
-    }
-    else if (strcmp(tokens[pos].type, "KEYWORD") == 0) {
-        declaration();
-    }
-    else {
-        assignment();
+    } else if (strcmp(tokens[pos].type, "KEYWORD") == 0) {
+        if (strcmp(tokens[pos + 1].type, "IDENTIFIER") == 0 &&
+            strcmp(tokens[pos + 2].value, "(") == 0) {
+            function_definition();
+        } else {
+            declaration();
+        }
+    } else if (strcmp(tokens[pos].type, "IDENTIFIER") == 0) {
+        if (strcmp(tokens[pos + 1].value, "(") == 0) {
+            function_call();
+        } else {
+            assignment();
+        }
+    } else if (strcmp(tokens[pos].value, "{") == 0) {
+        block();
+    } else {
+        printf("Syntax Error at token %d: Unexpected token <%s> %s\n",
+               pos + 1, tokens[pos].type, tokens[pos].value);
+        exit(1);
     }
 }
-
 
 void parse() {
     while (pos < total) {
         statement();
     }
-    printf("Syntax Analysis Successful ✅\n");
+    printf("Syntax Analysis Successful \xE2\x9C\x85\n");
 }
 
 int main() {
