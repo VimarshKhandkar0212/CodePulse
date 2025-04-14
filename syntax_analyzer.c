@@ -103,7 +103,13 @@ void function_definition() {
 
 // MAIN PARSER FUNCTION
 void statement() {
-    // New: handle int main() { ... }
+    // Skip preprocessor tokens
+    if (strcmp(tokens[pos].type, "PREPROCESSOR") == 0) {
+        pos++;
+        return;
+    }
+
+    // Function definition: int main() { ... }
     if (strcmp(tokens[pos].type, "KEYWORD") == 0 &&
         strcmp(tokens[pos].value, "int") == 0 &&
         strcmp(tokens[pos + 1].type, "IDENTIFIER") == 0 &&
@@ -121,6 +127,7 @@ void statement() {
         assignment();
     }
 }
+
 
 void parse() {
     while (pos < total) {
