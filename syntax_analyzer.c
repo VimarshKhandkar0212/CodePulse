@@ -25,7 +25,7 @@ void loadTokens() {
     fclose(fp);
 }
 
-// Match current token
+// Match current token type
 int match(char *expectedType) {
     if (pos < total && strcmp(tokens[pos].type, expectedType) == 0) {
         pos++;
@@ -34,15 +34,16 @@ int match(char *expectedType) {
     return 0;
 }
 
-// Expect and advance
+// Expect and move ahead, else error
 void expect(char *expectedType) {
     if (!match(expectedType)) {
-        printf("Syntax Error at token %d: expected %s, found %s (%s)\n", pos + 1, expectedType, tokens[pos].type, tokens[pos].value);
+        printf("Syntax Error at token %d: expected %s, found %s (%s)\n",
+               pos + 1, expectedType, tokens[pos].type, tokens[pos].value);
         exit(1);
     }
 }
 
-// Parser functions
+// Parsing functions
 void expression();
 void statement();
 
@@ -63,18 +64,18 @@ void expression() {
 
 void assignment() {
     expect("IDENTIFIER");
-    expect("OPERATOR"); // expecting =
+    expect("OPERATOR"); // '='
     expression();
-    expect("SEPARATOR"); // expecting ;
+    expect("SEPARATOR"); // ';'
 }
 
 void declaration() {
     expect("KEYWORD");       // int, float, etc.
     expect("IDENTIFIER");
-    if (match("OPERATOR")) { // optional =
+    if (match("OPERATOR")) { // optional '='
         expression();
     }
-    expect("SEPARATOR");     // ;
+    expect("SEPARATOR");     // ';'
 }
 
 void if_statement() {
@@ -88,8 +89,29 @@ void if_statement() {
     }
 }
 
+// NEW FUNCTION DEFINITION SUPPORT
+void function_definition() {
+    expect("KEYWORD");     // int
+    expect("IDENTIFIER");  // main
+    expect("SEPARATOR");   // (
+    expect("SEPARATOR");   // )
+    expect("SEPARATOR");   // {
+    while (!match("SEPARATOR")) { // }
+        statement();
+    }
+}
+
+// MAIN PARSER FUNCTION
 void statement() {
-    if (strcmp(tokens[pos].type, "KEYWORD") == 0 && strcmp(tokens[pos].value, "if") == 0) {
+    // New: handle int main() { ... }
+    if (strcmp(tokens[pos].type, "KEYWORD") == 0 &&
+        strcmp(tokens[pos].value, "int") == 0 &&
+        strcmp(tokens[pos + 1].type, "IDENTIFIER") == 0 &&
+        strcmp(tokens[pos + 1].value, "main") == 0) {
+        function_definition();
+    }
+    else if (strcmp(tokens[pos].type, "KEYWORD") == 0 &&
+             strcmp(tokens[pos].value, "if") == 0) {
         if_statement();
     }
     else if (strcmp(tokens[pos].type, "KEYWORD") == 0) {
@@ -112,4 +134,3 @@ int main() {
     parse();
     return 0;
 }
-
