@@ -2,112 +2,94 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define MAX_SYMBOLS 1000
+#define MAX_LINE_LENGTH 256
 
-// Structure for a symbol table entry
+// Structure for a symbol
 typedef struct {
-    char type[32];
-    char name[64];
+    char name[50];
+    char type[50];
+    char scope[50];
 } Symbol;
 
-Symbol table[MAX_SYMBOLS];
+Symbol symbolTable[100];
 int symbolCount = 0;
 
-// Trim leading spaces from a string
-void trimLeading(char *str) {
-    while (*str == ' ' || *str == '\t') str++;
-}
-
-// Add symbol to symbol table
-void addSymbol(const char *type, const char *name) {
-    strcpy(table[symbolCount].type, type);
-    strcpy(table[symbolCount].name, name);
+void addSymbol(const char* name, const char* type, const char* scope) {
+    strcpy(symbolTable[symbolCount].name, name);
+    strcpy(symbolTable[symbolCount].type, type);
+    strcpy(symbolTable[symbolCount].scope, scope);
     symbolCount++;
 }
 
-// Display and store the symbol table
-void displaySymbolTable(FILE *outFile) {
-    printf("\nSymbol Table:\n");
-    printf("---------------------------\n");
-    printf("| %-10s | %-10s |\n", "Type", "Name");
-    printf("---------------------------\n");
+void printSymbolTable() {
+    FILE *fp = fopen("symbol_table.txt", "w");
+    if (fp == NULL) {
+        printf("Error opening symbol_table.txt for writing.\n");
+        return;
+    }
 
-    fprintf(outFile, "Symbol Table:\n");
-    fprintf(outFile, "---------------------------\n");
-    fprintf(outFile, "| %-10s | %-10s |\n", "Type", "Name");
-    fprintf(outFile, "---------------------------\n");
+    fprintf(fp, "Symbol Table:\n");
+    fprintf(fp, "--------------------------------------------------\n");
+    fprintf(fp, "%-20s %-15s %-15s\n", "Name", "Type", "Scope");
+    fprintf(fp, "--------------------------------------------------\n");
 
     for (int i = 0; i < symbolCount; i++) {
-        printf("| %-10s | %-10s |\n", table[i].type, table[i].name);
-        fprintf(outFile, "| %-10s | %-10s |\n", table[i].type, table[i].name);
+        fprintf(fp, "%-20s %-15s %-15s\n",
+                symbolTable[i].name,
+                symbolTable[i].type,
+                symbolTable[i].scope);
     }
 
-    printf("---------------------------\n");
-    fprintf(outFile, "---------------------------\n");
+    fprintf(fp, "--------------------------------------------------\n");
+    fprintf(fp, "\nSymbol table saved successfully to 'symbol_table.txt'.\n");
+    fclose(fp);
+
+    printf("✅ Symbol table created and saved to 'symbol_table.txt'.\n");
 }
 
-// Parse the parse tree file and build the symbol table
-void parseTree(const char *filename) {
-    FILE *fp = fopen(filename, "r");
-    if (!fp) {
-        printf("Error opening parse tree file.\n");
-        exit(1);
+void parseLine(char* line, char* currentScope) {
+    if (strstr(line, "#include<")) {
+        char header[50];
+        sscanf(line, "|   |   +-- #%[^>]>%*s", header);
+        strcat(header, ">");
+        addSymbol(header, "Header File", "Global");
     }
 
-    char line[512];
-    char lastType[32] = "";
-
-    while (fgets(line, sizeof(line), fp)) {
-        trimLeading(line);
-
-        if (strstr(line, "ReturnType")) {
-            sscanf(line, "%*[^()] (%[^)])", lastType); // Save the type for future identifiers
-        }
-
-        if (strstr(line, "Statement")) {
-            sscanf(line, "%*[^()] (%[^)])", lastType); // Save the type for declared variables
-        }
-
-        if (strstr(line, "Identifier")) {
-            char identifier[64];
-            sscanf(line, "%*[^()] (%[^)])", identifier);
-
-            // Avoid function names and printf/return
-            if (strcmp(identifier, "main") != 0 &&
-                strcmp(identifier, "printf") != 0 &&
-                strcmp(identifier, "return") != 0) {
-
-                // Check for duplicates
-                int duplicate = 0;
-                for (int i = 0; i < symbolCount; i++) {
-                    if (strcmp(table[i].name, identifier) == 0) {
-                        duplicate = 1;
-                        break;
-                    }
-                }
-
-                if (!duplicate) {
-                    addSymbol(lastType, identifier);
-                }
-            }
-        }
+    else if (strstr(line, "Return Type:")) {
+        char returnType[50];
+        sscanf(line, "|   |   +-- Return Type: %s", returnType);
+        strcpy(currentScope, "main");
+        addSymbol("main", returnType, "Global");
     }
 
-    fclose(fp);
+    else if (strstr(line, "Initialization:")) {
+        char var[50];
+        sscanf(line, "|   |   |   |   +-- Initialization: %[^= ]", var);
+        addSymbol(var, "int", currentScope);
+    }
+
+    else if (strstr(line, "Constant:")) {
+        char constVal[50];
+        sscanf(line, "|   |   |   |   +-- Constant: %s", constVal);
+        addSymbol(constVal, "const int", currentScope);
+    }
 }
 
 int main() {
-    FILE *symbolFile = fopen("symbol_table.txt", "w");
-    if (!symbolFile) {
-        printf("Error opening symbol table file.\n");
+    FILE *fp = fopen("parse_tree.txt", "r");
+    if (fp == NULL) {
+        printf("❌ Failed to open parse_tree.txt.\n");
         return 1;
     }
 
-    parseTree("parse_tree.txt");
-    displaySymbolTable(symbolFile);
+    char line[MAX_LINE_LENGTH];
+    char currentScope[50] = "Global";
 
-    fclose(symbolFile);
-    printf("Semantic analysis complete. Symbol table written to 'symbol_table.txt'\n");
+    while (fgets(line, sizeof(line), fp)) {
+        parseLine(line, currentScope);
+    }
 
+    fclose(fp);
+    printSymbolTable();
     return 0;
 }
