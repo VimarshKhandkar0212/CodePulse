@@ -24,9 +24,14 @@ void addSymbol(const char* name, const char* type, const char* scope) {
 void printSymbolTable() {
     FILE *fp = fopen("symbol_table.txt", "w");
     if (fp == NULL) {
-        printf("Error opening symbol_table.txt for writing.\n");
+        printf("❌ Error opening symbol_table.txt for writing.\n");
         return;
     }
+
+    printf("\n📄 Symbol Table:\n");
+    printf("--------------------------------------------------\n");
+    printf("%-20s %-15s %-15s\n", "Name", "Type", "Scope");
+    printf("--------------------------------------------------\n");
 
     fprintf(fp, "Symbol Table:\n");
     fprintf(fp, "--------------------------------------------------\n");
@@ -34,17 +39,24 @@ void printSymbolTable() {
     fprintf(fp, "--------------------------------------------------\n");
 
     for (int i = 0; i < symbolCount; i++) {
+        printf("%-20s %-15s %-15s\n",
+               symbolTable[i].name,
+               symbolTable[i].type,
+               symbolTable[i].scope);
+
         fprintf(fp, "%-20s %-15s %-15s\n",
                 symbolTable[i].name,
                 symbolTable[i].type,
                 symbolTable[i].scope);
     }
 
+    printf("--------------------------------------------------\n");
     fprintf(fp, "--------------------------------------------------\n");
-    fprintf(fp, "\nSymbol table saved successfully to 'symbol_table.txt'.\n");
-    fclose(fp);
 
-    printf("✅ Symbol table created and saved to 'symbol_table.txt'.\n");
+    printf("\n✅ Symbol table created and saved to 'symbol_table.txt'.\n");
+    fprintf(fp, "\nSymbol table saved successfully to 'symbol_table.txt'.\n");
+
+    fclose(fp);
 }
 
 void parseLine(char* line, char* currentScope) {
