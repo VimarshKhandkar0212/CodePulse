@@ -60,12 +60,14 @@ void printSymbolTable() {
 }
 
 void parseLine(char* line, char* currentScope) {
-    if (strstr(line, "#include<")) {
-        char header[50];
-        sscanf(line, "|   |   +-- #%[^>]>%*s", header);
-        strcat(header, ">");
-        addSymbol(header, "Header File", "Global");
+    if (strstr(line, "+-- #include")) {
+    char header[60];
+    if (sscanf(line, "|   |   +-- #include<%[^>]>", header) == 1) {
+        char headerWithBrackets[70];
+        sprintf(headerWithBrackets, "<%s>", header);
+        addSymbol(headerWithBrackets, "Header File", "Global");
     }
+}
 
     else if (strstr(line, "Return Type:")) {
         char returnType[50];
