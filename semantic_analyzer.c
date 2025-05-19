@@ -2,108 +2,96 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define MAX_LINE_LENGTH 256
+#define MAX_SYMBOLS 100
+#define MAX_LINE 1024
 
-// Structure for a symbol
 typedef struct {
-    char name[50];
+    char name[100];
     char type[50];
-    char scope[50];
+    char scope[20]; // "global" or function name
 } Symbol;
 
-Symbol symbolTable[100];
+Symbol table[MAX_SYMBOLS];
 int symbolCount = 0;
 
-void addSymbol(const char* name, const char* type, const char* scope) {
-    strcpy(symbolTable[symbolCount].name, name);
-    strcpy(symbolTable[symbolCount].type, type);
-    strcpy(symbolTable[symbolCount].scope, scope);
-    symbolCount++;
+// Check if symbol is already declared in the same scope
+int isDuplicate(const char* name, const char* scope) {
+    for (int i = 0; i < symbolCount; i++) {
+        if (strcmp(table[i].name, name) == 0 && strcmp(table[i].scope, scope) == 0)
+            return 1;
+    }
+    return 0;
 }
 
-void printSymbolTable() {
-    FILE *fp = fopen("symbol_table.txt", "w");
-    if (fp == NULL) {
-        printf("❌ Error opening symbol_table.txt for writing.\n");
+void addSymbol(const char* name, const char* type, const char* scope) {
+    if (isDuplicate(name, scope)) {
+        printf("Semantic Error: Duplicate declaration of '%s' in scope '%s'\n", name, scope);
         return;
     }
 
-    printf("\n📄 Symbol Table:\n");
-    printf("--------------------------------------------------\n");
-    printf("%-20s %-15s %-15s\n", "Name", "Type", "Scope");
-    printf("--------------------------------------------------\n");
+    strcpy(table[symbolCount].name, name);
+    strcpy(table[symbolCount].type, type);
+    strcpy(table[symbolCount].scope, scope);
+    symbolCount++;
+}
 
-    fprintf(fp, "Symbol Table:\n");
-    fprintf(fp, "--------------------------------------------------\n");
-    fprintf(fp, "%-20s %-15s %-15s\n", "Name", "Type", "Scope");
-    fprintf(fp, "--------------------------------------------------\n");
+void printSymbolTable(FILE* fout) {
+    printf("\nSymbol Table:\n");
+    printf("%-20s %-10s %-10s\n", "Name", "Type", "Scope");
+    fprintf(fout, "\nSymbol Table:\n");
+    fprintf(fout, "%-20s %-10s %-10s\n", "Name", "Type", "Scope");
 
     for (int i = 0; i < symbolCount; i++) {
-        printf("%-20s %-15s %-15s\n",
-               symbolTable[i].name,
-               symbolTable[i].type,
-               symbolTable[i].scope);
-
-        fprintf(fp, "%-20s %-15s %-15s\n",
-                symbolTable[i].name,
-                symbolTable[i].type,
-                symbolTable[i].scope);
-    }
-
-    printf("--------------------------------------------------\n");
-    fprintf(fp, "--------------------------------------------------\n");
-
-    printf("\n✅ Symbol table created and saved to 'symbol_table.txt'.\n");
-    fprintf(fp, "\nSymbol table saved successfully to 'symbol_table.txt'.\n");
-
-    fclose(fp);
-}
-
-void parseLine(char* line, char* currentScope) {
-    if (strstr(line, "+-- #include")) {
-    char header[60];
-    if (sscanf(line, "|   |   +-- #include<%[^>]>", header) == 1) {
-        char headerWithBrackets[70];
-        sprintf(headerWithBrackets, "<%s>", header);
-        addSymbol(headerWithBrackets, "Header File", "Global");
-    }
-}
-
-    else if (strstr(line, "Return Type:")) {
-        char returnType[50];
-        sscanf(line, "|   |   +-- Return Type: %s", returnType);
-        strcpy(currentScope, "main");
-        addSymbol("main", returnType, "Global");
-    }
-
-    else if (strstr(line, "Initialization:")) {
-        char var[50];
-        sscanf(line, "|   |   |   |   +-- Initialization: %[^= ]", var);
-        addSymbol(var, "int", currentScope);
-    }
-
-    else if (strstr(line, "Constant:")) {
-        char constVal[50];
-        sscanf(line, "|   |   |   |   +-- Constant: %s", constVal);
-        addSymbol(constVal, "const int", currentScope);
+        printf("%-20s %-10s %-10s\n", table[i].name, table[i].type, table[i].scope);
+        fprintf(fout, "%-20s %-10s %-10s\n", table[i].name, table[i].type, table[i].scope);
     }
 }
 
 int main() {
-    FILE *fp = fopen("parse_tree.txt", "r");
-    if (fp == NULL) {
-        printf("❌ Failed to open parse_tree.txt.\n");
+    FILE* fin = fopen("parse_tree.txt", "r");
+    if (!fin) {
+        printf("Error: Could not open output.txt\n");
         return 1;
     }
 
-    char line[MAX_LINE_LENGTH];
-    char currentScope[50] = "Global";
-
-    while (fgets(line, sizeof(line), fp)) {
-        parseLine(line, currentScope);
+    FILE* fout = fopen("symbol_table.txt", "w");
+    if (!fout) {
+        printf("Error: Could not open symbol_table.txt\n");
+        fclose(fin);
+        return 1;
     }
 
-    fclose(fp);
-    printSymbolTable();
+    char line[MAX_LINE];
+    char currentScope[100] = "global";
+    char lastType[50] = "";
+
+    while (fgets(line, sizeof(line), fin)) {
+        if (strstr(line, "Function Definition")) {
+            // Nothing to extract directly, wait for name and return type
+        } else if (strstr(line, "Return Type:")) {
+            sscanf(line, "%*[^:] : %s", lastType);
+        } else if (strstr(line, "Function Name:")) {
+            char name[100];
+            sscanf(line, "%*[^:] : %s", name);
+            addSymbol(name, lastType, "global");
+            strcpy(currentScope, name); // switch scope to function
+        } else if (strstr(line, "Parameter")) {
+            // Wait for next Type and Identifier
+        } else if (strstr(line, "Type:")) {
+            sscanf(line, "%*[^:] : %s", lastType);
+        } else if (strstr(line, "Identifier:")) {
+            char name[100];
+            sscanf(line, "%*[^:] : %s", name);
+            addSymbol(name, lastType, currentScope);
+        } else if (strstr(line, "Declaration")) {
+            // Wait for next Type and Identifier
+        } else if (strstr(line, "Body (Compound Statement)")) {
+            // Scope can remain the same
+        }
+    }
+
+    printSymbolTable(fout);
+    fclose(fin);
+    fclose(fout);
     return 0;
 }
