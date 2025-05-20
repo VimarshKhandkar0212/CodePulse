@@ -33,7 +33,7 @@ void printNode(int level, int sibling, const char *label, const char *content) {
 }
 
 int isInclude(const char *token) {
-    return strstr(token, "#include") != NULL;
+    return strstr(token, "#include") != NULL || strstr(token, "<") != NULL;
 }
 
 int isDatatype(const char *token) {
@@ -48,7 +48,6 @@ int isNumber(const char *type) {
     return strcmp(type, "NUMBER") == 0;
 }
 
-// Forward declarations
 void parseTranslationUnit();
 void parseFunction(int);
 void parseParameters(int);
@@ -56,6 +55,9 @@ void parseFunctionBody(int);
 void parseDeclaration(int);
 void parseForLoop(int);
 void parseReturnStatement(int);
+void parseIfCondition(int);
+void parseWhileLoop(int);
+void parsePrintfScanf(int);
 
 void parseTranslationUnit() {
     printNode(0, 0, "TranslationUnit", NULL);
@@ -96,10 +98,6 @@ void parseTranslationUnit() {
                         } else fseek(fp, pos, SEEK_SET);
                     } else fseek(fp, pos, SEEK_SET);
                 } else fseek(fp, pos, SEEK_SET);
-            } else if (strcmp(token, "for") == 0) {
-                parseForLoop(1);
-            } else if (strcmp(token, "return") == 0) {
-                parseReturnStatement(1);
             }
         }
     }
@@ -110,21 +108,21 @@ void parseFunction(int level) {
     printNode(level, 0, "Function Definition", NULL);
     printNode(level + 1, 1, "Return Type", token);
 
-    if (fscanf(fp, "%s %s", type, token) == EOF) return reportError("Unexpected EOF after return type");
+    if (fscanf(fp, "%s %s", type, token) == EOF) return reportError("Expected function name");
     if (isIdentifier(type)) printNode(level + 1, 1, "Function Name", token);
     else return reportError("Expected function name");
 
     if (fscanf(fp, "%s %s", type, token) == EOF || strcmp(token, "(") != 0)
-        return reportError("Expected '(' after function name");
+        return reportError("Expected '('");
 
     printNode(level + 1, 1, "Parameters", NULL);
     parseParameters(level + 2);
 
     if (fscanf(fp, "%s %s", type, token) == EOF || strcmp(token, ")") != 0)
-        return reportError("Expected ')' after parameters");
+        return reportError("Expected ')'");
 
     if (fscanf(fp, "%s %s", type, token) == EOF || strcmp(token, "{") != 0)
-        return reportError("Expected '{' to start function body");
+        return reportError("Expected '{'");
 
     printNode(level + 1, 0, "Body (Compound Statement)", NULL);
     parseFunctionBody(level + 2);
@@ -141,7 +139,7 @@ void parseParameters(int level) {
             printNode(level, 0, "Parameter", NULL);
             printNode(level + 1, 1, "Type", token);
             if (fscanf(fp, "%s %s", type, token) == EOF || !isIdentifier(type))
-                return reportError("Expected identifier in parameter");
+                return reportError("Expected identifier");
             printNode(level + 1, 0, "Identifier", token);
 
             pos = ftell(fp);
@@ -159,11 +157,17 @@ void parseFunctionBody(int level) {
         long pos = ftell(fp);
         if (fscanf(fp, "%s %s", type, token) == EOF) return reportError("Unexpected EOF in body");
         if (strcmp(token, "}") == 0) break;
-        else if (strcmp(type, "KEYWORD") == 0) {
+
+        if (strcmp(type, "KEYWORD") == 0) {
             if (isDatatype(token)) parseDeclaration(level);
             else if (strcmp(token, "for") == 0) parseForLoop(level);
+            else if (strcmp(token, "while") == 0) parseWhileLoop(level);
+            else if (strcmp(token, "if") == 0) parseIfCondition(level);
             else if (strcmp(token, "return") == 0) parseReturnStatement(level);
-            else return reportError("Unexpected keyword in body");
+            else return reportError("Unexpected keyword");
+        } else if (isIdentifier(type)) {
+            if (strcmp(token, "printf") == 0 || strcmp(token, "scanf") == 0)
+                parsePrintfScanf(level);
         }
     }
 }
@@ -178,43 +182,128 @@ void parseDeclaration(int level) {
 
     if (fscanf(fp, "%s %s", type, token) == EOF) return;
     if (strcmp(token, "=") == 0) {
-        if (fscanf(fp, "%s %s", type, token) == EOF)
-            return reportError("Expected initializer");
-        printNode(level + 1, 1, "Initializer", token);
-        if (fscanf(fp, "%s %s", type, token) == EOF || strcmp(token, ";") != 0)
-            return reportError("Expected ';' after initializer");
+        char expr[256] = "";
+        while (fscanf(fp, "%s %s", type, token) != EOF && strcmp(token, ";") != 0)
+            strcat(expr, token), strcat(expr, " ");
+        printNode(level + 1, 1, "Initializer", NULL);
+        printNode(level + 2, 0, "Expression", expr);
     } else if (strcmp(token, ";") != 0) {
-        return reportError("Expected ';' or '='");
+        return reportError("Expected '=' or ';'");
     }
 }
 
 void parseForLoop(int level) {
     if (parseError) return;
     printNode(level, 0, "For Loop", NULL);
+
     if (fscanf(fp, "%s %s", type, token) == EOF || strcmp(token, "(") != 0)
         return reportError("Expected '(' after for");
 
+    // Parse Initialization
     printNode(level + 1, 1, "Initialization", NULL);
+    long pos = ftell(fp);
     if (fscanf(fp, "%s %s", type, token) == EOF) return;
-    if (isDatatype(token)) parseDeclaration(level + 2);
-    else return reportError("Expected declaration in for init");
 
+    if (strcmp(type, "KEYWORD") == 0 && isDatatype(token)) {
+        fseek(fp, pos, SEEK_SET);
+        parseDeclaration(level + 2);
+    } else {
+        fseek(fp, pos, SEEK_SET);
+        char expr[256] = "";
+        while (fscanf(fp, "%s %s", type, token) != EOF && strcmp(token, ";") != 0) {
+            strcat(expr, token);
+            strcat(expr, " ");
+        }
+        if (strlen(expr) == 0)
+            return reportError("Expected initialization expression");
+        printNode(level + 2, 0, "Expression", expr);
+    }
+
+    // Parse Condition
     printNode(level + 1, 1, "Condition", NULL);
     char expr[256] = "";
-    while (fscanf(fp, "%s %s", type, token) != EOF && strcmp(token, ";") != 0)
-        strcat(expr, token), strcat(expr, " ");
+    while (fscanf(fp, "%s %s", type, token) != EOF && strcmp(token, ";") != 0) {
+        strcat(expr, token);
+        strcat(expr, " ");
+    }
     printNode(level + 2, 0, "Expression", expr);
 
+    // Parse Increment
     printNode(level + 1, 1, "Increment", NULL);
     expr[0] = 0;
-    while (fscanf(fp, "%s %s", type, token) != EOF && strcmp(token, ")") != 0)
-        strcat(expr, token), strcat(expr, " ");
+    while (fscanf(fp, "%s %s", type, token) != EOF && strcmp(token, ")") != 0) {
+        strcat(expr, token);
+        strcat(expr, " ");
+    }
     printNode(level + 2, 0, "Expression", expr);
 
     if (fscanf(fp, "%s %s", type, token) == EOF || strcmp(token, "{") != 0)
         return reportError("Expected '{' after for loop");
+
     printNode(level + 1, 0, "Body (Compound Statement)", NULL);
     parseFunctionBody(level + 2);
+}
+
+void parseWhileLoop(int level) {
+    if (parseError) return;
+    printNode(level, 0, "While Loop", NULL);
+    if (fscanf(fp, "%s %s", type, token) == EOF || strcmp(token, "(") != 0)
+        return reportError("Expected '(' after while");
+    char expr[256] = "";
+    while (fscanf(fp, "%s %s", type, token) != EOF && strcmp(token, ")") != 0)
+        strcat(expr, token), strcat(expr, " ");
+    printNode(level + 1, 1, "Condition", expr);
+    if (fscanf(fp, "%s %s", type, token) == EOF || strcmp(token, "{") != 0)
+        return reportError("Expected '{'");
+    printNode(level + 1, 0, "Body (Compound Statement)", NULL);
+    parseFunctionBody(level + 2);
+}
+
+void parseIfCondition(int level) {
+    if (parseError) return;
+
+    printNode(level, 0, "If Statement", NULL);
+
+    // Expect '(' after if
+    if (fscanf(fp, "%s %s", type, token) == EOF || strcmp(token, "(") != 0)
+        return reportError("Expected '(' after if");
+
+    char expr[256] = "";
+    while (fscanf(fp, "%s %s", type, token) != EOF && strcmp(token, ")") != 0)
+        strcat(expr, token), strcat(expr, " ");
+    printNode(level + 1, 1, "Condition", expr);
+
+    // Expect '{' for the if body
+    if (fscanf(fp, "%s %s", type, token) == EOF || strcmp(token, "{") != 0)
+        return reportError("Expected '{' after if condition");
+
+    printNode(level + 1, 0, "Body (Compound Statement)", NULL);
+    parseFunctionBody(level + 2);
+
+    // Now check for optional else / else if
+    long pos = ftell(fp);
+    if (fscanf(fp, "%s %s", type, token) == EOF) return;
+
+    if (strcmp(token, "else") == 0) {
+        // Check if it's else if or else
+        if (fscanf(fp, "%s %s", type, token) == EOF) return;
+
+        if (strcmp(token, "if") == 0) {
+            // else if branch
+            parseIfCondition(level); // recursive call on same level
+        } else if (strcmp(token, "{") == 0) {
+            // else branch with compound statement
+            printNode(level, 0, "Else Statement", NULL);
+            printNode(level + 1, 0, "Body (Compound Statement)", NULL);
+            parseFunctionBody(level + 2);
+        } else {
+            // unexpected token after else
+            return reportError("Expected '{' or 'if' after else");
+        }
+    } else {
+        // No else, rewind the file pointer
+        fseek(fp, pos, SEEK_SET);
+    }
 }
 
 void parseReturnStatement(int level) {
@@ -226,15 +315,27 @@ void parseReturnStatement(int level) {
     printNode(level + 1, 0, "Expression", expr);
 }
 
+void parsePrintfScanf(int level) {
+    printNode(level, 0, strcmp(token, "printf") == 0 ? "Printf Statement" : "Scanf Statement", NULL);
+    if (fscanf(fp, "%s %s", type, token) == EOF || strcmp(token, "(") != 0)
+        return reportError("Expected '(' after printf/scanf");
+    char args[256] = "";
+    while (fscanf(fp, "%s %s", type, token) != EOF && strcmp(token, ")") != 0)
+        strcat(args, token), strcat(args, " ");
+    printNode(level + 1, 0, "Arguments", args);
+    if (fscanf(fp, "%s %s", type, token) == EOF || strcmp(token, ";") != 0)
+        return reportError("Expected ';' after printf/scanf");
+}
+
 int main() {
     fp = fopen("tokens.txt", "r");
     if (!fp) {
-        perror("Could not open input.txt");
+        perror("Could not open tokens.txt");
         return 1;
     }
     output = fopen("parse_tree.txt", "w");
     if (!output) {
-        perror("Could not open output.txt");
+        perror("Could not open parse_tree.txt");
         fclose(fp);
         return 1;
     }
