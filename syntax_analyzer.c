@@ -5,8 +5,8 @@
 
 #define MAX_LEVEL 100
 
-FILE *fp;
-FILE *output;
+FILE *fp;     //tokens.txt
+FILE *output;  //parse_tree.txt
 
 char type[50], token[100];
 int hasSibling[MAX_LEVEL];
@@ -174,24 +174,73 @@ void parseFunctionBody(int level) {
 
 void parseDeclaration(int level) {
     if (parseError) return;
-    printNode(level, 0, "Declaration", NULL);
-    printNode(level + 1, 1, "Type", token);
-    if (fscanf(fp, "%s %s", type, token) == EOF || !isIdentifier(type))
-        return reportError("Expected identifier");
-    printNode(level + 1, 0, "Identifier", token);
 
-    if (fscanf(fp, "%s %s", type, token) == EOF) return;
+    printNode(level, 0, "Declaration", NULL);
+
+    // Expect: int identifier (= expression)?;
+    if (strcmp(token, "int") != 0) {
+        reportError("Expected type 'int'");
+        return;
+    }
+
+    printNode(level + 1, 1, "Type", "int");
+
+    // Get identifier
+    if (fscanf(fp, "%s %s", type, token) == EOF) {
+        reportError("Unexpected end of file after type");
+        return;
+    }
+
+    if (strcmp(type, "IDENTIFIER") != 0) {
+        reportError("Expected identifier after type");
+        return;
+    }
+
+    printNode(level + 1, 1, "Identifier", token);
+
+    // Check next token
+    if (fscanf(fp, "%s %s", type, token) == EOF) {
+        reportError("Unexpected end of file after identifier");
+        return;
+    }
+
     if (strcmp(token, "=") == 0) {
+        // Handle initializer
         char expr[256] = "";
-        while (fscanf(fp, "%s %s", type, token) != EOF && strcmp(token, ";") != 0)
-            strcat(expr, token), strcat(expr, " ");
+        bool semicolonFound = false;
+
+        while (fscanf(fp, "%s %s", type, token) != EOF) {
+            if (strcmp(token, ";") == 0) {
+                semicolonFound = true;
+                break;
+            }
+
+            // Catch keywords or other types before ; – indicating malformed declaration
+            if (strcmp(token, "int") == 0 || strcmp(token, "float") == 0 ||
+                strcmp(token, "char") == 0 || strcmp(type, "KEYWORD") == 0) {
+                reportError("Missing ';' before new declaration");
+                return;
+            }
+
+            strcat(expr, token);
+            strcat(expr, " ");
+        }
+
+        if (!semicolonFound) {
+            reportError("Expected ';' at end of initialization");
+            return;
+        }
+
         printNode(level + 1, 1, "Initializer", NULL);
         printNode(level + 2, 0, "Expression", expr);
-    } else if (strcmp(token, ";") != 0) {
-        return reportError("Expected '=' or ';'");
+    } else if (strcmp(token, ";") == 0) {
+        // No initializer, just declaration
+        return;
+    } else {
+        reportError("Expected ';' or '=' after identifier");
+        return;
     }
 }
-
 void parseForLoop(int level) {
     if (parseError) return;
     printNode(level, 0, "For Loop", NULL);
