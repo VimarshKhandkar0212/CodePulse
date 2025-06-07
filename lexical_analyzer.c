@@ -24,6 +24,12 @@ int isOperator(char c) {
     return strchr("+-*/%=<>!&|^", c) != NULL;
 }
 
+const char *validOperators[] = {
+    "+", "-", "*", "/", "%", "=", "<", ">", "!", "&", "|", "^",
+    "++", "--", "==", "!=", "<=", ">=", "&&", "||", "+=", "-=", "*=", "/=", "%=",
+    NULL
+};
+
 // Check if character is a separator
 int isSeparator(char c) {
     return strchr("(){}[]:;\"'.,|", c) != NULL;
@@ -37,9 +43,9 @@ void printToken(char *type, char *token) {
     fclose(fp);
 }
 
-
 // Main tokenizer
 void tokenize(char *code) {
+    int started = 0;
     int i = 0, j = 0;
     char token[256];
 
@@ -69,7 +75,47 @@ void tokenize(char *code) {
                 token[j++] = code[i++];
             }
             token[j] = '\0';
-            printToken("PREPROCESSOR", token);
+
+            if (strncmp(token, "#include", 8) == 0) {
+                char *start = token + 8;
+                while (isspace(*start)) start++;
+
+                if (*start == '<' && token[strlen(token) - 1] == '>') {
+                    char header[100];
+                    int k = 0;
+                    start++;
+                    while (*start != '>' && *start != '\0' && k < 99) {
+                        header[k++] = *start++;
+                    }
+                    header[k] = '\0';
+
+                    char *validHeaders[] = {
+                        "stdio.h", "stdlib.h", "string.h", "math.h", "ctype.h", NULL
+                    };
+
+                    int valid = 0;
+                    for (int h = 0; validHeaders[h] != NULL; h++) {
+                        if (strcmp(header, validHeaders[h]) == 0) {
+                            valid = 1;
+                            break;
+                        }
+                    }
+
+                    if (valid) {
+                        printToken("PREPROCESSOR", token);
+                        started = 1;
+                    } else {
+                        fprintf(stderr, "Error: Invalid preprocessor directive: %s\n", token);
+                        exit(1);
+                    }
+                } else {
+                    fprintf(stderr, "Error: Invalid preprocessor directive: %s\n", token);
+                    exit(1);
+                }
+            } else {
+                fprintf(stderr, "Error: Invalid preprocessor directive: %s\n", token);
+                exit(1);
+            }
             continue;
         }
 
@@ -77,11 +123,26 @@ void tokenize(char *code) {
         if (code[i] == '"') {
             j = 0;
             token[j++] = code[i++];
-            while (code[i] != '"' && code[i] != '\0') {
-                token[j++] = code[i++];
+
+            while (code[i] != '\0') {
+                if (code[i] == '\\' && code[i + 1] != '\0') {
+                    token[j++] = code[i++];
+                    token[j++] = code[i++];
+                } else if (code[i] == '"') {
+                    token[j++] = code[i++];
+                    break;
+                } else {
+                    token[j++] = code[i++];
+                }
             }
-            if (code[i] == '"') token[j++] = code[i++];
+
             token[j] = '\0';
+
+            if (token[j - 1] != '"') {
+                fprintf(stderr, "Error: Unterminated string literal\n");
+                exit(1);
+            }
+
             printToken("STRING_LITERAL", token);
             continue;
         }
@@ -90,25 +151,64 @@ void tokenize(char *code) {
         if (code[i] == '\'') {
             j = 0;
             token[j++] = code[i++];
-            while (code[i] != '\'' && code[i] != '\0') {
+
+            if (code[i] == '\\' && code[i + 1] != '\0') {
+                token[j++] = code[i++];
+                token[j++] = code[i++];
+            } else if (code[i] != '\0' && code[i] != '\'') {
                 token[j++] = code[i++];
             }
-            if (code[i] == '\'') token[j++] = code[i++];
+
+            if (code[i] == '\'') {
+                token[j++] = code[i++];
+            } else {
+                fprintf(stderr, "Error: Unterminated char constant\n");
+                exit(1);
+            }
+
             token[j] = '\0';
             printToken("CHAR_CONSTANT", token);
             continue;
         }
 
-        // Numbers
-        if (isdigit(code[i])) {
-            j = 0;
-            while (isdigit(code[i]) || code[i] == '.') {
-                token[j++] = code[i++];
+        // Numbers (with invalid identifier check like 1abc or 45....4)
+if (isdigit(code[i])) {
+    if (!started) {
+        fprintf(stderr, "Error: Code must start with a valid #include directive.\n");
+        exit(1);
+    }
+
+    j = 0;
+    int dotCount = 0;
+
+    while (isdigit(code[i]) || code[i] == '.') {
+        if (code[i] == '.') {
+            dotCount++;
+            if (dotCount > 1) {
+                fprintf(stderr, "Error: Invalid number (multiple decimal points): ");
+                while (isdigit(code[i]) || code[i] == '.') putchar(code[i++]);
+                putchar('\n');
+                exit(1);
             }
-            token[j] = '\0';
-            printToken("NUMBER", token);
-            continue;
         }
+        token[j++] = code[i++];
+    }
+
+    // Now check if next char is a letter or _, meaning invalid identifier
+    if (isalpha(code[i]) || code[i] == '_') {
+        while (isalnum(code[i]) || code[i] == '_') {
+            token[j++] = code[i++];
+        }
+        token[j] = '\0';
+        fprintf(stderr, "Error: Invalid identifier starting with digit: %s\n", token);
+        exit(1);
+    }
+
+    token[j] = '\0';
+    printToken("NUMBER", token);
+    continue;
+}
+
 
         // Identifiers / Keywords
         if (isalpha(code[i]) || code[i] == '_') {
@@ -117,23 +217,46 @@ void tokenize(char *code) {
                 token[j++] = code[i++];
             }
             token[j] = '\0';
-            if (isKeyword(token)) printToken("KEYWORD", token);
-            else printToken("IDENTIFIER", token);
+
+            if (isKeyword(token)) {
+                printToken("KEYWORD", token);
+            } else {
+                printToken("IDENTIFIER", token);
+            }
             continue;
         }
 
-        // Operators (support 2-char like ==, ++, etc.)
+
+        // Operators
         if (isOperator(code[i])) {
             j = 0;
             token[j++] = code[i++];
             if (isOperator(code[i])) token[j++] = code[i++];
             token[j] = '\0';
-            printToken("OPERATOR", token);
+
+            int valid = 0;
+            for (int k = 0; validOperators[k] != NULL; k++) {
+                if (strcmp(validOperators[k], token) == 0) {
+                    valid = 1;
+                    break;
+                }
+            }
+
+            if (valid) {
+                printToken("OPERATOR", token);
+            } else {
+                fprintf(stderr, "Error: Invalid operator '%s'\n", token);
+                exit(1);
+            }
             continue;
         }
 
         // Separators
         if (isSeparator(code[i])) {
+            if (!started) {
+                fprintf(stderr, "Error: Code must start with a valid #include directive.\n");
+                exit(1);
+            }
             token[0] = code[i++];
             token[1] = '\0';
             printToken("SEPARATOR", token);
@@ -148,7 +271,7 @@ void tokenize(char *code) {
 }
 
 int main() {
-    FILE *clear = fopen("tokens.txt", "w"); // clear tokens.txt
+    FILE *clear = fopen("tokens.txt", "w"); // clear file
     if (clear) fclose(clear);
 
     FILE *fp = fopen("input.c", "r");
