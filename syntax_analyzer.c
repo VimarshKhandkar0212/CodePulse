@@ -33,6 +33,7 @@ void printNode(int level, int sibling, const char *label, const char *content) {
 }
 
 int isInclude(const char *token) {
+    
     return strstr(token, "#include") != NULL || strstr(token, "<") != NULL;
 }
 
