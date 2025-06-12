@@ -45,7 +45,6 @@ void printToken(char *type, char *token) {
 
 // Main tokenizer
 void tokenize(char *code) {
-    int started = 0;
     int i = 0, j = 0;
     char token[256];
 
@@ -77,40 +76,30 @@ void tokenize(char *code) {
             token[j] = '\0';
 
             if (strncmp(token, "#include", 8) == 0) {
+                printToken("PREPROCESSOR", "#include");
+
                 char *start = token + 8;
                 while (isspace(*start)) start++;
 
-                if (*start == '<' && token[strlen(token) - 1] == '>') {
-                    char header[100];
-                    int k = 0;
-                    start++;
-                    while (*start != '>' && *start != '\0' && k < 99) {
-                        header[k++] = *start++;
-                    }
-                    header[k] = '\0';
+                char headerToken[128];
+                int k = 0;
 
-                    char *validHeaders[] = {
-                        "stdio.h", "stdlib.h", "string.h", "math.h", "ctype.h", NULL
-                    };
+                if ((*start == '<' || *start == '"')) {
+                    char delim = (*start == '<') ? '>' : '"';
+                    headerToken[k++] = *start++;
 
-                    int valid = 0;
-                    for (int h = 0; validHeaders[h] != NULL; h++) {
-                        if (strcmp(header, validHeaders[h]) == 0) {
-                            valid = 1;
-                            break;
-                        }
+                    while (*start != '\0' && *start != delim && k < 126) {
+                        headerToken[k++] = *start++;
                     }
 
-                    if (valid) {
-                        printToken("PREPROCESSOR", token);
-                        started = 1;
-                    } else {
-                        fprintf(stderr, "Error: Invalid preprocessor directive: %s\n", token);
-                        exit(1);
+                    if (*start == delim) {
+                        headerToken[k++] = *start++;
                     }
+
+                    headerToken[k] = '\0';
+                    printToken("HEADER_FILE", headerToken);
                 } else {
-                    fprintf(stderr, "Error: Invalid preprocessor directive: %s\n", token);
-                    exit(1);
+                    printToken("HEADER_FILE", start);
                 }
             } else {
                 fprintf(stderr, "Error: Invalid preprocessor directive: %s\n", token);
@@ -171,44 +160,37 @@ void tokenize(char *code) {
             continue;
         }
 
-        // Numbers (with invalid identifier check like 1abc or 45....4)
-if (isdigit(code[i])) {
-    if (!started) {
-        fprintf(stderr, "Error: Code must start with a valid #include directive.\n");
-        exit(1);
-    }
+        // Numbers (check for invalid identifiers like 1abc)
+        if (isdigit(code[i])) {
+            j = 0;
+            int dotCount = 0;
 
-    j = 0;
-    int dotCount = 0;
+            while (isdigit(code[i]) || code[i] == '.') {
+                if (code[i] == '.') {
+                    dotCount++;
+                    if (dotCount > 1) {
+                        fprintf(stderr, "Error: Invalid number (multiple decimal points): ");
+                        while (isdigit(code[i]) || code[i] == '.') putchar(code[i++]);
+                        putchar('\n');
+                        exit(1);
+                    }
+                }
+                token[j++] = code[i++];
+            }
 
-    while (isdigit(code[i]) || code[i] == '.') {
-        if (code[i] == '.') {
-            dotCount++;
-            if (dotCount > 1) {
-                fprintf(stderr, "Error: Invalid number (multiple decimal points): ");
-                while (isdigit(code[i]) || code[i] == '.') putchar(code[i++]);
-                putchar('\n');
+            if (isalpha(code[i]) || code[i] == '_') {
+                while (isalnum(code[i]) || code[i] == '_') {
+                    token[j++] = code[i++];
+                }
+                token[j] = '\0';
+                fprintf(stderr, "Error: Invalid identifier starting with digit: %s\n", token);
                 exit(1);
             }
+
+            token[j] = '\0';
+            printToken("NUMBER", token);
+            continue;
         }
-        token[j++] = code[i++];
-    }
-
-    // Now check if next char is a letter or _, meaning invalid identifier
-    if (isalpha(code[i]) || code[i] == '_') {
-        while (isalnum(code[i]) || code[i] == '_') {
-            token[j++] = code[i++];
-        }
-        token[j] = '\0';
-        fprintf(stderr, "Error: Invalid identifier starting with digit: %s\n", token);
-        exit(1);
-    }
-
-    token[j] = '\0';
-    printToken("NUMBER", token);
-    continue;
-}
-
 
         // Identifiers / Keywords
         if (isalpha(code[i]) || code[i] == '_') {
@@ -225,7 +207,6 @@ if (isdigit(code[i])) {
             }
             continue;
         }
-
 
         // Operators
         if (isOperator(code[i])) {
@@ -253,10 +234,6 @@ if (isdigit(code[i])) {
 
         // Separators
         if (isSeparator(code[i])) {
-            if (!started) {
-                fprintf(stderr, "Error: Code must start with a valid #include directive.\n");
-                exit(1);
-            }
             token[0] = code[i++];
             token[1] = '\0';
             printToken("SEPARATOR", token);
@@ -271,7 +248,7 @@ if (isdigit(code[i])) {
 }
 
 int main() {
-    FILE *clear = fopen("tokens.txt", "w"); // clear file
+    FILE *clear = fopen("tokens.txt", "w"); // Clear file
     if (clear) fclose(clear);
 
     FILE *fp = fopen("input.c", "r");
