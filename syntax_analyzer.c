@@ -5,12 +5,17 @@
 
 #define MAX_LEVEL 100
 
-FILE *fp;     //tokens.txt
-FILE *output;  //parse_tree.txt
+FILE *fp;     // tokens.txt
+FILE *output; // parse_tree.txt
 
 char type[50], token[100];
 int hasSibling[MAX_LEVEL];
 bool parseError = false;
+
+const char *validHeaders[] = {
+    "<stdio.h>", "<stdlib.h>", "<stdbool.h>", "<string.h>", "<math.h>", "<ctype.h>", "<time.h>", "<limits.h>",
+    "\"stdio.h\"", "\"stdlib.h\"", "\"stdbool.h\"", "\"string.h\"", "\"math.h\"", "\"ctype.h\"", "\"time.h\"", "\"limits.h\""
+};
 
 void reportError(const char *msg) {
     fprintf(stderr, "Syntax Error: %s\n", msg);
@@ -32,60 +37,77 @@ void printNode(int level, int sibling, const char *label, const char *content) {
     else printf("%s\n", label), fprintf(output, "%s\n", label);
 }
 
-int isInclude(const char *token) {
-    
-    return strstr(token, "#include") != NULL || strstr(token, "<") != NULL;
+bool isValidHeader(const char *header) {
+    for (int i = 0; i < sizeof(validHeaders) / sizeof(validHeaders[0]); i++) {
+        if (strcmp(header, validHeaders[i]) == 0) return true;
+    }
+    return false;
 }
 
-int isDatatype(const char *token) {
-    return strcmp(token, "int") == 0 || strcmp(token, "float") == 0 || strcmp(token, "char") == 0 || strcmp(token, "void") == 0;
-}
-
-int isIdentifier(const char *type) {
-    return strcmp(type, "IDENTIFIER") == 0;
-}
-
-int isNumber(const char *type) {
-    return strcmp(type, "NUMBER") == 0;
-}
-
-void parseTranslationUnit();
-void parseFunction(int);
-void parseParameters(int);
-void parseFunctionBody(int);
-void parseDeclaration(int);
-void parseForLoop(int);
-void parseReturnStatement(int);
-void parseIfCondition(int);
-void parseWhileLoop(int);
-void parsePrintfScanf(int);
+// Forward declarations for all functions used
+void parseFunction(int level);
+void parseDeclaration(int level);
+void parseParameters(int level);
+void parseFunctionBody(int level);
+void parseForLoop(int level);
+void parseWhileLoop(int level);
+void parseIfCondition(int level);
+void parseReturnStatement(int level);
+void parsePrintfScanf(int level);
 
 void parseTranslationUnit() {
     printNode(0, 0, "TranslationUnit", NULL);
 
     long fileStart = ftell(fp);
-    int includesCount = 0;
-    while (fscanf(fp, "%s %s", type, token) != EOF) {
-        if (strcmp(type, "PREPROCESSOR") == 0 && isInclude(token)) includesCount++;
-    }
-    fseek(fp, fileStart, SEEK_SET);
+    bool firstIncludeFound = false;
 
-    int count = includesCount;
-    while (count--) {
-        if (fscanf(fp, "%s %s", type, token) == EOF) break;
-        if (strcmp(type, "PREPROCESSOR") == 0 && isInclude(token)) {
-            printNode(1, (count > 0), "Include Directives", NULL);
-            printNode(2, 0, token, NULL);
+    while (fscanf(fp, "%s %s", type, token) != EOF) {
+        if (strcmp(type, "PREPROCESSOR") == 0 && strstr(token, "#include") != NULL) {
+            // Valid include directive
+            char nextType[50], nextToken[100];
+
+            if (fscanf(fp, "%s %s", nextType, nextToken) == EOF) {
+                reportError("Unexpected end after #include");
+                return;
+            }
+
+            if (!isValidHeader(nextToken)) {
+                reportError("Invalid or unsupported header file.");
+                return;
+            }
+
+            if (!firstIncludeFound) {
+                printNode(1, 1, "Include Directives", NULL);
+                firstIncludeFound = true;
+            }
+
+            // Print full directive as in tokens.txt
+            char fullInclude[210];
+            snprintf(fullInclude, sizeof(fullInclude) -1, "%s %s", token, nextToken);
+            fullInclude[sizeof(fullInclude)-1]='\0';
+            printNode(2, 0, fullInclude, NULL);
+        } else {
+            // First non-include token – rewind to parse rest of the program
+            fseek(fp, -strlen(type) - strlen(token) - 2, SEEK_CUR);
+            break;
         }
     }
 
+    if (!firstIncludeFound) {
+        reportError("Code must start with include directives only.");
+        return;
+    }
+
+    // Parse the rest of the program
     while (!parseError && fscanf(fp, "%s %s", type, token) != EOF) {
         if (strcmp(type, "KEYWORD") == 0) {
-            if (isDatatype(token) || strcmp(token, "void") == 0) {
+            if (strcmp(token, "int") == 0 || strcmp(token, "float") == 0 ||
+                strcmp(token, "char") == 0 || strcmp(token, "void") == 0) {
+
                 long pos = ftell(fp);
                 char nextType[50], nextToken[100];
                 if (fscanf(fp, "%s %s", nextType, nextToken) != EOF) {
-                    if (isIdentifier(nextType)) {
+                    if (strcmp(nextType, "IDENTIFIER") == 0) {
                         long pos2 = ftell(fp);
                         char tType[50], tToken[100];
                         if (fscanf(fp, "%s %s", tType, tToken) != EOF) {
@@ -102,6 +124,18 @@ void parseTranslationUnit() {
             }
         }
     }
+}
+
+int isDatatype(const char *token) {
+    return strcmp(token, "int") == 0 || strcmp(token, "float") == 0 || strcmp(token, "char") == 0 || strcmp(token, "void") == 0;
+}
+
+int isIdentifier(const char *type) {
+    return strcmp(type, "IDENTIFIER") == 0;
+}
+
+int isNumber(const char *type) {
+    return strcmp(type, "NUMBER") == 0;
 }
 
 void parseFunction(int level) {
@@ -377,12 +411,14 @@ void parsePrintfScanf(int level) {
         return reportError("Expected ';' after printf/scanf");
 }
 
+// -- main() remains unchanged --
 int main() {
     fp = fopen("tokens.txt", "r");
     if (!fp) {
         perror("Could not open tokens.txt");
         return 1;
     }
+
     output = fopen("parse_tree.txt", "w");
     if (!output) {
         perror("Could not open parse_tree.txt");
